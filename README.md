@@ -37,8 +37,9 @@ python -m pytest test_logica.py -v
 | `app.py` | Solo presentación: KPIs, filtros, tarjetas de alerta, toggle de proyección. |
 | `proveedores.py` | Reagrupa el pedido corregido por proveedor (cada proveedor recibe su orden aparte). |
 | `anomalias.py` | Compara cada sucursal contra las demás para detectar órdenes fuera de patrón. |
+| `chat.py` | Chat con los datos: arma el contexto y consulta el modelo (Groq). |
 | `test_logica.py` | 30 verificaciones, incluidos los 6 casos de aceptación del enunciado. |
-| `test_extras.py` | 14 verificaciones de los módulos opcionales y de la edición de órdenes. |
+| `test_extras.py` | 19 verificaciones de los módulos opcionales, la edición de órdenes y el chat. |
 | `datos/` | Los 4 CSV del reto. |
 | `assets/` | El logo de la marca. Es opcional: si el archivo no está, la app arranca igual. |
 | `.streamlit/config.toml` | Tema en blanco y negro, para que el rojo quede reservado a las alertas. |
@@ -192,12 +193,12 @@ reemplazar la orden desde la interfaz recalcule las alertas (al pedir la mozzare
 faltaba, el olvido desaparece).
 
 ```
-44 passed
+49 passed
 ```
 
 ---
 
-## Las tres vistas extra
+## Las cuatro vistas extra
 
 **🔎 Órdenes raras.** Las alertas comparan cada sucursal contra sí misma. Esta vista
 compara **una sucursal contra las demás**: mide la *cobertura* de cada pedido
@@ -225,6 +226,34 @@ quedar trabada. Mientras haya una orden modificada, un aviso arriba lo deja clar
 que nadie confunda una simulación con la orden real.
 
 **📦 Pedido corregido por proveedor.** Ver más arriba.
+
+**💬 Preguntar.** La gerente escribe en español ("¿qué sucursal está pidiendo demasiado
+queso?") y recibe una respuesta en texto, sin leer tablas.
+
+La decisión de diseño importante es **cómo se conecta el modelo a los datos**. La
+tentación es dejar que el modelo escriba código pandas y ejecutarlo, pero eso es darle
+permiso de correr cualquier cosa en el servidor a cambio de muy poco. Acá se hace al
+revés: se le pasa **la tabla de alertas ya calculada** dentro del prompt y se le pide que
+responda solo con eso. Funciona porque el dataset es chico —89 líneas, unos 2.000
+tokens— y entra entero en el contexto. Los números que ve el modelo son exactamente los
+que calculó `logica.py`, así que el chat no puede contradecir al dashboard. Si mañana
+fueran 50.000 líneas habría que resumir o filtrar antes de preguntar.
+
+El chat respeta los filtros: si la gerente está mirando una sola sucursal, responde sobre
+esa. Usa **Groq** (free tier, sin tarjeta) por HTTP directo, sin SDK, para no sumar una
+dependencia que pueda romper el despliegue.
+
+Para activarlo hace falta una clave gratuita de [console.groq.com](https://console.groq.com):
+
+```toml
+# .streamlit/secrets.toml   (ya está en .gitignore, la clave nunca se sube)
+GROQ_API_KEY = "gsk_tu_clave"
+GROQ_MODELO  = "llama-3.3-70b-versatile"   # opcional
+```
+
+En Streamlit Cloud la misma línea va en *Manage app → Settings → Secrets*. **Sin clave la
+app funciona igual**: la pestaña explica cómo activarlo en vez de romperse, porque una
+feature opcional no puede tumbar el dashboard.
 
 ---
 
@@ -255,8 +284,6 @@ mañana es Odoo, y los tests siguen valiendo igual.
 
 ## Ideas para seguir
 
-- Un "chat con los datos" sobre el DataFrame de alertas, con un modelo de free tier
-  (Gemini o Groq), para preguntar en español sin leer tablas.
 - Historial: guardar las alertas de cada semana para ver qué sucursal mejora y cuál
   repite los mismos errores.
 - Que el colchón de seguridad sea por insumo y no global: no es lo mismo quedarse sin
