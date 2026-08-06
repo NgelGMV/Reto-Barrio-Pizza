@@ -1,0 +1,7 @@
+streamlit>=1.49
+pandas>=2.2
+numpy>=1.26
+plotly>=5.22
+
+# Solo para correr las pruebas (no lo necesita el despliegue):
+pytest>=8.0

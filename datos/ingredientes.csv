@@ -1,0 +1,23 @@
+﻿ingrediente_id,nombre,proveedor,unidad_base,formato_compra,unidad_base_por_formato,es_perecedero
+harina,Harina 00,Molinos Central,kg,Saco 25 kg,25,No
+harina_gf,Harina gluten free,Molinos Central,kg,Bolsa 1 kg,1,No
+semola,Semola,Molinos Central,kg,Saco 10 kg,10,No
+levadura,Levadura,Molinos Central,kg,Caja 1 kg,1,No
+oregano,Oregano seco,Molinos Central,kg,Bolsa 1 kg,1,No
+mozzarella,Mozzarella,Distrib. Bella Italia,kg,Caja 10 kg,10,Si
+burrata,Burrata,Distrib. Bella Italia,und,Caja x 12 und,12,Si
+salsa_pelatti,Salsa pelatti,Distrib. Bella Italia,kg,Lata 2.55 kg,2.55,No
+pepperoni,Pepperoni,Distrib. Bella Italia,kg,Caja 5 kg,5,Si
+jamon,Jamon,Distrib. Bella Italia,kg,Caja 4 kg,4,Si
+parmesano,Parmesano,Distrib. Bella Italia,kg,Caja 5 kg,5,No
+queso_vegano,Queso vegano,Distrib. Bella Italia,kg,Caja 5 kg,5,Si
+aceite_oliva,Aceite de oliva,Importadora Istmo,L,Lata 5 L,5,No
+aceitunas,Aceitunas,Importadora Istmo,kg,Balde 5 kg,5,No
+albahaca,Albahaca fresca,AgroFresco,kg,Paquete 250 gr,0.25,Si
+arugula,Arugula,AgroFresco,kg,Paquete 250 gr,0.25,Si
+hongos,Hongos,Hongos del Valle,kg,Kilo,1,Si
+cebolla,Cebolla blanca,Verduras La Huerta,kg,Saco 20 kg,20,No
+pimenton,Pimenton,Verduras La Huerta,kg,Caja 5 kg,5,Si
+pina,Pina,Verduras La Huerta,und,Unidad,1,Si
+prosciutto,Prosciutto,Deli Gourmet,kg,Pieza 4 kg,4,Si
+cajas_pizza,Cajas de pizza,EmpaqueTodo,und,Paquete 50 und,50,No

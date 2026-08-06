@@ -1,0 +1,8 @@
+# El repo original del reto; los CSV ya están copiados en datos/
+reto-practicante-ia-master/
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.streamlit/secrets.toml
