@@ -36,7 +36,9 @@ python -m pytest test_logica.py -v
 | `logica.py` | Toda la lógica de negocio: carga y limpieza, conversión de unidades, proyección, necesidad, clasificación de alertas y redacción de los mensajes. No importa Streamlit. |
 | `app.py` | Solo presentación: KPIs, filtros, tarjetas de alerta, toggle de proyección. |
 | `proveedores.py` | Reagrupa el pedido corregido por proveedor (cada proveedor recibe su orden aparte). |
+| `anomalias.py` | Compara cada sucursal contra las demás para detectar órdenes fuera de patrón. |
 | `test_logica.py` | 30 verificaciones, incluidos los 6 casos de aceptación del enunciado. |
+| `test_extras.py` | 14 verificaciones de los módulos opcionales y de la edición de órdenes. |
 | `datos/` | Los 4 CSV del reto. |
 | `assets/` | El logo de la marca. Es opcional: si el archivo no está, la app arranca igual. |
 | `.streamlit/config.toml` | Tema en blanco y negro, para que el rojo quede reservado a las alertas. |
@@ -183,9 +185,46 @@ negativo, ingredientes sin histórico, ingredientes fuera de catálogo y órdene
 También verifica que las alertas salgan ordenadas por severidad y que los filtros del
 dashboard no fallen con cero resultados.
 
+`test_extras.py` cubre los módulos opcionales: que el pedido corregido use lo
+recomendado y no lo pedido, que la matriz por proveedor sume bien, que la detección de
+órdenes raras encuentre a Via Argentina y no marque a quien pide como sus pares, y que
+reemplazar la orden desde la interfaz recalcule las alertas (al pedir la mozzarella que
+faltaba, el olvido desaparece).
+
 ```
-30 passed
+44 passed
 ```
+
+---
+
+## Las tres vistas extra
+
+**🔎 Órdenes raras.** Las alertas comparan cada sucursal contra sí misma. Esta vista
+compara **una sucursal contra las demás**: mide la *cobertura* de cada pedido
+(`pedido ÷ consumo proyectado`, o sea cuántas semanas cubre) y busca a quien se aleja de
+la mediana de sus pares. Al ser un cociente no tiene unidades, así que se puede comparar
+harina contra albahaca sin que los kilos distorsionen nada. Se compara contra la
+**mediana de las otras** sucursales, no contra el promedio del grupo entero, para que una
+sucursal muy desviada no se compare contra un número que ella misma infló.
+
+Sobre los datos del reto encuentra 3 casos, y **los 3 ya tenían alerta individual**: acá
+la vista no descubre nada nuevo, lo explica desde otro ángulo ("Via Argentina pide 4× lo
+que piden las otras"). Cada hallazgo indica si ya tenía alerta propia o si solo se ve
+comparando, para no vender como hallazgo algo que ya estaba a la vista.
+
+> Probé también comparar el **perfil de consumo** entre sucursales, normalizando por
+> tamaño de sucursal (la idea de "por cliente" del enunciado). Lo descarté: en este
+> dataset los perfiles son casi idénticos y lo único que sobresalía era Marbella con
+> pepperoni, que es el artefacto de la semana atípica de 150 kg. Habría sido una vista
+> que solo genera un falso positivo.
+
+**✏️ Editar la orden.** Se puede subir otro `orden_compra_semana.csv` o cambiar las
+cantidades a mano en una tabla, y las alertas se recalculan al instante. Si el archivo
+subido está roto, el error se muestra y la app vuelve sola a la orden original en vez de
+quedar trabada. Mientras haya una orden modificada, un aviso arriba lo deja claro para
+que nadie confunda una simulación con la orden real.
+
+**📦 Pedido corregido por proveedor.** Ver más arriba.
 
 ---
 
@@ -216,10 +255,11 @@ mañana es Odoo, y los tests siguen valiendo igual.
 
 ## Ideas para seguir
 
-- Cargar la orden desde la propia interfaz (`st.file_uploader`) para revisar cualquier
-  semana sin tocar archivos.
-- Detección de órdenes raras comparando una sucursal contra las demás, normalizando por
-  volumen de ventas.
-- Un "chat con los datos" sobre el DataFrame de alertas, con un modelo de free tier.
+- Un "chat con los datos" sobre el DataFrame de alertas, con un modelo de free tier
+  (Gemini o Groq), para preguntar en español sin leer tablas.
 - Historial: guardar las alertas de cada semana para ver qué sucursal mejora y cuál
   repite los mismos errores.
+- Que el colchón de seguridad sea por insumo y no global: no es lo mismo quedarse sin
+  mozzarella que sin orégano.
+- Cruzar con el precio de cada formato para poner los excesos en dólares, que es el
+  número que de verdad mueve una decisión de compra.

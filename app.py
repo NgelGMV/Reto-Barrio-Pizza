@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import base64
 import html
+import io
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
+import anomalias as AN
 import logica as L
 import proveedores as P
 
@@ -73,18 +75,30 @@ AYUDA_METODO = {
 # ---------------------------------------------------------------------------
 
 
+CLAVE_ORDEN = "orden_csv"  # orden modificada desde la UI, si la hay
+
+
 @st.cache_data(show_spinner="Cargando datos…")
-def cargar() -> L.Datos:
-    return L.cargar_datos()
+def cargar(orden_csv: str | None = None) -> L.Datos:
+    """Los datos ya limpios.
+
+    `orden_csv` es la orden modificada desde la UI, serializada a texto. Se pasa
+    como string y no como DataFrame porque así Streamlit puede usarla de clave de
+    caché: dos órdenes iguales reutilizan el resultado, una distinta lo recalcula.
+    """
+    if orden_csv is None:
+        return L.cargar_datos()
+    return L.cargar_datos(orden_df=pd.read_csv(io.StringIO(orden_csv)))
 
 
 @st.cache_data(show_spinner=False)
-def alertas_de(metodo: str, buffer: float) -> pd.DataFrame:
-    return L.construir_alertas(cargar(), metodo=metodo, buffer=buffer)
+def alertas_de(metodo: str, buffer: float, orden_csv: str | None = None) -> pd.DataFrame:
+    return L.construir_alertas(cargar(orden_csv), metodo=metodo, buffer=buffer)
 
 
 @st.cache_data(show_spinner=False)
 def historico_de(sucursal: str, ingrediente_id: str) -> pd.DataFrame:
+    # El histórico no depende de la orden, así que siempre sale de los CSV.
     consumo = cargar().consumo
     return consumo[(consumo["sucursal"] == sucursal) &
                    (consumo["ingrediente_id"] == ingrediente_id)]
@@ -289,11 +303,20 @@ def leyenda(tipos_visibles: list[str]) -> None:
 # Carga inicial
 # ---------------------------------------------------------------------------
 
+orden_csv = st.session_state.get(CLAVE_ORDEN)
+
 try:
-    datos = cargar()
+    datos = cargar(orden_csv)
 except (FileNotFoundError, ValueError) as error:
     st.error(f"No se pudieron cargar los datos: {error}")
-    st.info("Revisá que la carpeta `datos/` tenga los 4 CSV del reto.")
+    if orden_csv is not None:
+        # Si la orden cargada desde la UI es la que rompe, se vuelve sola a la
+        # original: la app no puede quedar trabada por un archivo malo.
+        del st.session_state[CLAVE_ORDEN]
+        st.warning("Se volvió a la orden original del CSV.")
+        st.button("Reintentar")
+    else:
+        st.info("Revisá que la carpeta `datos/` tenga los 4 CSV del reto.")
     st.stop()
 
 
@@ -328,8 +351,8 @@ with st.sidebar:
 
 # Se calculan acá porque la lista de proveedores del filtro sale de las alertas
 # (incluye "Desconocido" para lo que no está en el catálogo).
-alertas_completas = alertas_de(metodo, buffer)
-alertas_otro_metodo = alertas_de(otro_metodo, buffer)
+alertas_completas = alertas_de(metodo, buffer, orden_csv)
+alertas_otro_metodo = alertas_de(otro_metodo, buffer, orden_csv)
 sucursales_disponibles = sorted(datos.consumo["sucursal"].dropna().unique())
 proveedores_disponibles = sorted(alertas_completas["proveedor"].dropna().unique())
 
@@ -371,6 +394,12 @@ kpis_otro = L.resumen_kpis(filtradas_otro)
 # ---------------------------------------------------------------------------
 
 st.title("Revisión de órdenes de compra")
+if orden_csv is not None:
+    st.warning(
+        "Estás viendo una **orden modificada desde la app**, no el archivo original. "
+        "Podés volver al original en la pestaña «Editar la orden».",
+        icon="✏️",
+    )
 st.caption(
     f"Semana en curso · {len(sucursales)} de {len(sucursales_disponibles)} sucursales · "
     f"Proyección: **{L.ETIQUETAS_METODO[metodo]}**"
@@ -412,7 +441,12 @@ leyenda(list(L.TIPOS_ALERTA) + ([L.OK] if mostrar_ok else []))
 # Contenido principal
 # ---------------------------------------------------------------------------
 
-tab_alertas, tab_proveedores = st.tabs(["🚨 Alertas", "📦 Pedido corregido por proveedor"])
+tab_alertas, tab_raras, tab_proveedores, tab_editar = st.tabs([
+    "🚨 Alertas",
+    "🔎 Órdenes raras",
+    "📦 Pedido corregido por proveedor",
+    "✏️ Editar la orden",
+])
 
 with tab_alertas:
     if filtradas.empty:
@@ -430,6 +464,75 @@ with tab_alertas:
                 with st.expander("Ver cómo se calculó"):
                     detalle_calculo(alerta, metodo)
             st.write("")
+
+with tab_raras:
+    st.markdown(
+        "Las alertas miran **cada sucursal contra sí misma**: lo que pidió contra lo "
+        "que ella va a consumir. Acá se mira otra cosa: si una sucursal pide un insumo "
+        "**distinto a como lo piden las demás**, midiendo cuántas semanas de consumo "
+        "cubre cada pedido. Es un número sin unidades, así que se puede comparar "
+        "harina contra albahaca."
+    )
+    raras = AN.ordenes_raras(
+        L.filtrar(alertas_completas, sucursales, None, proveedores_sel)
+    )
+    if raras.empty:
+        st.success(
+            "Ninguna sucursal se sale del patrón del resto de la cadena con los "
+            "filtros elegidos."
+        )
+    else:
+        novedades = int((~raras["ya_alertado"]).sum())
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Hallazgos", len(raras), border=True)
+        c2.metric("Sin alerta propia", novedades,
+                  help="Solo se ven comparando sucursales entre sí.", border=True)
+        c3.metric("Sucursales involucradas", raras["sucursal"].nunique(), border=True)
+
+        for _, fila in raras.iterrows():
+            if fila["ya_alertado"]:
+                color, etiqueta = "#8a8a8a", f"También tiene alerta: {L.ETIQUETAS_TIPO[fila['tipo_alerta']]}"
+            else:
+                color, etiqueta = "#6b5bd6", "Solo se ve comparando sucursales"
+            st.markdown(
+                f'<div style="border-left:6px solid {color};background:{tinte(color)};'
+                f'border-radius:6px;padding:.7rem 1rem;margin:.35rem 0;">'
+                f'<div style="margin-bottom:.4rem;">'
+                f'<span style="background:{color};color:#fff;border-radius:4px;'
+                f'padding:.08rem .45rem;font-size:.72rem;white-space:nowrap;">'
+                f'{html.escape(etiqueta)}</span></div>'
+                f'<div style="font-size:.95rem;line-height:1.45;">'
+                f'{html.escape(sin_icono(str(fila["mensaje"])))}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        with st.expander("Ver el detalle numérico"):
+            st.caption(
+                "«Cobertura» = cuántas semanas de consumo cubre lo pedido. "
+                "«Pares» = la mediana de las otras sucursales para el mismo insumo."
+            )
+            st.dataframe(
+                raras.assign(
+                    cobertura=raras["cobertura"].round(2),
+                    cobertura_pares=raras["cobertura_pares"].round(2),
+                    veces_vs_pares=raras["veces_vs_pares"].round(2),
+                ).rename(columns={
+                    "sucursal": "Sucursal", "nombre": "Insumo",
+                    "formatos_pedidos": "Pidió", "cobertura": "Cobertura",
+                    "cobertura_pares": "Cobertura de los pares",
+                    "veces_vs_pares": "Veces vs. pares",
+                    "formatos_segun_pares": "Según los pares",
+                    "diferencia_formatos": "Diferencia",
+                })[["Sucursal", "Insumo", "Pidió", "Cobertura",
+                    "Cobertura de los pares", "Veces vs. pares",
+                    "Según los pares", "Diferencia"]],
+                hide_index=True, width="stretch",
+            )
+            st.dataframe(AN.resumen_por_sucursal(raras).rename(columns={
+                "sucursal": "Sucursal", "hallazgos": "Hallazgos",
+                "por_encima": "Pide de más que sus pares",
+                "por_debajo": "Pide de menos que sus pares",
+            }), hide_index=True, width="stretch")
 
 with tab_proveedores:
     st.markdown(
@@ -495,3 +598,85 @@ with tab_proveedores:
                 f"({', '.join(sorted(set(sin_proveedor['ingrediente_id'])))}): "
                 "no están en el catálogo, hay que resolverlas a mano."
             )
+
+with tab_editar:
+    st.markdown(
+        "Probá otra orden y mirá cómo cambian las alertas. Podés **subir otro CSV** "
+        "o **editar las cantidades a mano** en la tabla."
+    )
+
+    st.subheader("Subir otra orden")
+    subido = st.file_uploader(
+        "Un CSV con las columnas `sucursal`, `ingrediente_id` y `cantidad_formatos`",
+        type=["csv"],
+    )
+    if subido is not None and st.button("Usar este archivo", type="primary"):
+        try:
+            nueva = L.leer_orden_subida(subido)
+            # Se valida cargándola de verdad: si el archivo no sirve, el error
+            # aparece acá y no deja la app en un estado roto.
+            L.cargar_datos(orden_df=nueva)
+            st.session_state[CLAVE_ORDEN] = nueva.to_csv(index=False)
+            st.rerun()
+        except Exception as error:  # archivo corrupto, columnas faltantes, etc.
+            st.error(f"No se pudo usar ese archivo: {error}")
+
+    st.divider()
+    st.subheader("Editar las cantidades")
+
+    catalogo_nombres = datos.catalogo[["ingrediente_id", "nombre", "formato_compra"]]
+    orden_vista = datos.orden.merge(catalogo_nombres, on="ingrediente_id", how="left")
+    orden_vista["nombre"] = orden_vista["nombre"].fillna(orden_vista["ingrediente_id"])
+    orden_vista["formato_compra"] = orden_vista["formato_compra"].fillna("—")
+
+    eleccion = st.selectbox("Sucursal a editar", ["Todas"] + sucursales_disponibles)
+    if eleccion == "Todas":
+        vista = orden_vista
+    else:
+        vista = orden_vista[orden_vista["sucursal"] == eleccion]
+
+    with st.form("editor_orden"):
+        editada = st.data_editor(
+            vista,
+            column_config={
+                "sucursal": st.column_config.TextColumn("Sucursal"),
+                "ingrediente_id": st.column_config.TextColumn("ID del insumo"),
+                "nombre": st.column_config.TextColumn("Insumo", disabled=True),
+                "formato_compra": st.column_config.TextColumn("Formato", disabled=True),
+                "cantidad_formatos": st.column_config.NumberColumn(
+                    "Cantidad (formatos)", min_value=0, step=1),
+            },
+            num_rows="dynamic",
+            hide_index=True,
+            width="stretch",
+            height=340,
+            key="tabla_orden",
+        )
+        aplicar = st.form_submit_button("Aplicar cambios y recalcular alertas",
+                                        type="primary")
+
+    if aplicar:
+        if eleccion == "Todas":
+            resultado = editada
+        else:
+            # Solo se editó una sucursal: hay que devolver también las demás,
+            # si no la orden quedaría con una sola sucursal.
+            resto = orden_vista[orden_vista["sucursal"] != eleccion]
+            resultado = pd.concat([resto, editada], ignore_index=True)
+        columnas = ["sucursal", "ingrediente_id", "cantidad_formatos"]
+        st.session_state[CLAVE_ORDEN] = resultado[columnas].to_csv(index=False)
+        st.rerun()
+
+    columna_reset, columna_descarga = st.columns(2)
+    if orden_csv is not None:
+        if columna_reset.button("↩️ Volver a la orden original"):
+            del st.session_state[CLAVE_ORDEN]
+            st.rerun()
+    else:
+        columna_reset.caption("Estás viendo la orden original del CSV.")
+    columna_descarga.download_button(
+        "⬇️ Descargar esta orden (CSV)",
+        data=datos.orden.to_csv(index=False).encode("utf-8-sig"),
+        file_name="orden_compra_semana.csv",
+        mime="text/csv",
+    )
