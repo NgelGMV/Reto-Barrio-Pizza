@@ -293,6 +293,36 @@ feature opcional no puede tumbar el dashboard.
 
 ---
 
+## Cómo usé IA para resolverlo
+
+Usé **Claude Code** como par de programación durante todo el reto, pero la dirección fue
+mía y el criterio de negocio también.
+
+Lo primero que hice no fue pedir código: escribí el brief del proyecto en `CLAUDE.md`
+—contexto, contratos de datos, la lógica exacta y los 6 casos de aceptación— para que la
+IA trabajara contra una especificación y no contra una charla. Ese archivo está en el
+repo y es, en la práctica, el prompt maestro.
+
+Después partí el trabajo en fases y revisé cada una antes de seguir: primero la lógica y
+los tests corriendo de verdad (nada de "debería funcionar"), recién después la interfaz,
+y al final las features opcionales. En cada corte pedí ver la salida real de los tests.
+
+Las decisiones de producto las tomé yo: fondo negro con el color reservado a las alertas,
+el estado por sucursal como primera lectura, el chat fuera del tablero, y qué explicación
+técnica sobraba en pantalla. También descartamos cosas: probamos comparar el perfil de
+consumo entre sucursales y lo sacamos porque en este dataset solo producía un falso
+positivo, que está explicado más arriba.
+
+Donde más rindió la IA fue en el trabajo defensivo —los casos raros, los tests, la lectura
+robusta de los CSV— y en encontrar cosas que yo no habría visto solo: por ejemplo que el
+DOM del multiselect cambia entre la versión de Streamlit local y la de Streamlit Cloud,
+que hacía que los filtros se vieran ilegibles solo en la app publicada.
+
+El chat que trae la app es otro uso de IA, pero del lado del producto: le pasa al modelo
+la tabla de alertas ya calculada para que la gerente pregunte en español.
+
+---
+
 ## Cómo se llevaría esto a producción con Odoo
 
 Hoy la herramienta lee 4 CSV. En producción esos 4 CSV se reemplazan por 4 consultas a
