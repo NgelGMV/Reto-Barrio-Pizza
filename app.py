@@ -7,7 +7,9 @@ Correr con:  streamlit run app.py
 
 from __future__ import annotations
 
+import base64
 import html
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -15,9 +17,27 @@ import streamlit as st
 import logica as L
 import proveedores as P
 
+CARPETA_ASSETS = Path(__file__).parent / "assets"
+
+
+def buscar_logo() -> Path | None:
+    """El logo de la marca, si está disponible.
+
+    Es opcional a propósito: si el archivo no está, la app arranca igual con el
+    emoji de siempre en vez de romperse por un asset faltante.
+    """
+    for nombre in ("logo.png", "logo.jpg", "logo.jpeg", "logo.webp", "logo.svg"):
+        ruta = CARPETA_ASSETS / nombre
+        if ruta.is_file():
+            return ruta
+    return None
+
+
+LOGO = buscar_logo()
+
 st.set_page_config(
     page_title="Órdenes de compra · Barrio Pizza",
-    page_icon="🍕",
+    page_icon=str(LOGO) if LOGO else "🍕",
     layout="wide",
 )
 
@@ -67,6 +87,28 @@ def historico_de(sucursal: str, ingrediente_id: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Piezas visuales
 # ---------------------------------------------------------------------------
+
+
+@st.cache_data(show_spinner=False)
+def marco_logo(ruta: Path) -> str:
+    """El logo incrustado en el HTML, sobre una tarjeta blanca.
+
+    Se incrusta en base64 en vez de usar `st.image` porque hace falta envolverlo
+    en un contenedor propio, y Streamlit no deja abrir un div alrededor de otro
+    elemento. El fondo blanco hace que se vea igual de prolijo tenga el archivo
+    transparencia o no.
+    """
+    tipos = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+             ".webp": "image/webp", ".svg": "image/svg+xml"}
+    mime = tipos.get(ruta.suffix.lower(), "image/png")
+    datos = base64.b64encode(ruta.read_bytes()).decode("ascii")
+    return (
+        '<div style="background:#fff;border-radius:14px;padding:.85rem;'
+        'margin:0 0 1rem 0;display:flex;justify-content:center;'
+        'box-shadow:0 1px 3px rgba(0,0,0,.08);">'
+        f'<img src="data:{mime};base64,{datos}" alt="Barrio Pizza"'
+        ' style="width:100%;max-width:170px;height:auto;display:block;"></div>'
+    )
 
 
 def tinte(color_hex: str, alfa: float = 0.13) -> str:
@@ -254,7 +296,10 @@ except (FileNotFoundError, ValueError) as error:
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.header("🍕 Barrio Pizza")
+    if LOGO:
+        st.markdown(marco_logo(LOGO), unsafe_allow_html=True)
+    else:
+        st.header("🍕 Barrio Pizza")
     st.subheader("Método de proyección")
     metodo = st.radio(
         "¿Cómo estimamos el consumo de la próxima semana?",

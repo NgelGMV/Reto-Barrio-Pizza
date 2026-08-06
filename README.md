@@ -38,9 +38,15 @@ python -m pytest test_logica.py -v
 | `proveedores.py` | Reagrupa el pedido corregido por proveedor (cada proveedor recibe su orden aparte). |
 | `test_logica.py` | 30 verificaciones, incluidos los 6 casos de aceptación del enunciado. |
 | `datos/` | Los 4 CSV del reto. |
+| `assets/` | El logo de la marca. Es opcional: si el archivo no está, la app arranca igual. |
+| `.streamlit/config.toml` | Tema en blanco y negro, para que el rojo quede reservado a las alertas. |
 
 La separación importa: la lógica se puede testear sin levantar la interfaz, y la
 interfaz no toma ni una sola decisión de negocio.
+
+> El logo de Barrio Pizza se usa únicamente para ambientar esta entrega; es
+> propiedad de la marca. Este dashboard es un prototipo de un ejercicio técnico,
+> no una herramienta oficial de la empresa.
 
 ---
 

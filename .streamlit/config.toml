@@ -1,0 +1,13 @@
+# Tema alineado con la marca (blanco y negro).
+#
+# El primario va en negro, no en el rojo que trae Streamlit por defecto, por dos
+# razones: es el color de Barrio Pizza, y sobre todo deja el rojo libre para lo
+# único que debe gritar en la pantalla, que son las alertas de quiebre. Si los
+# filtros y las pestañas también fueran rojos, el color dejaría de significar algo.
+#
+# Se fija el tema claro porque el logo es negro sobre blanco y las tarjetas de
+# alerta están calibradas sobre fondo claro.
+
+[theme]
+base = "light"
+primaryColor = "#1F1F1F"
