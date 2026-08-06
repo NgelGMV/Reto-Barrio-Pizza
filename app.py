@@ -20,24 +20,30 @@ import proveedores as P
 CARPETA_ASSETS = Path(__file__).parent / "assets"
 
 
-def buscar_logo() -> Path | None:
-    """El logo de la marca, si está disponible.
+EXTENSIONES_IMAGEN = (".png", ".jpg", ".jpeg", ".webp", ".svg")
 
-    Es opcional a propósito: si el archivo no está, la app arranca igual con el
-    emoji de siempre en vez de romperse por un asset faltante.
+
+def buscar_imagen(base: str) -> Path | None:
+    """Busca `assets/<base>.<ext>` probando las extensiones habituales.
+
+    Los assets son opcionales a propósito: si el archivo no está, la app arranca
+    igual en vez de romperse por una imagen faltante.
     """
-    for nombre in ("logo.png", "logo.jpg", "logo.jpeg", "logo.webp", "logo.svg"):
-        ruta = CARPETA_ASSETS / nombre
+    for extension in EXTENSIONES_IMAGEN:
+        ruta = CARPETA_ASSETS / f"{base}{extension}"
         if ruta.is_file():
             return ruta
     return None
 
 
-LOGO = buscar_logo()
+LOGO = buscar_imagen("logo")
+# La versión compacta del logo se lee mejor que la detallada a 16px en la
+# pestaña del navegador; si no está, se usa el logo principal.
+ICONO = buscar_imagen("icono") or LOGO
 
 st.set_page_config(
     page_title="Órdenes de compra · Barrio Pizza",
-    page_icon=str(LOGO) if LOGO else "🍕",
+    page_icon=str(ICONO) if ICONO else "🍕",
     layout="wide",
 )
 
