@@ -87,13 +87,15 @@ ETIQUETAS_TIPO = {
     OK: "OK",
 }
 
+# Calibrados para fondo negro: sobre oscuro hay que subir el brillo y bajar la
+# saturación, si no el rojo y el naranja se empastan y dejan de distinguirse.
 COLORES_TIPO = {
-    PIDE_MENOS: "#d64545",  # rojo
-    OLVIDO: "#e08a2e",      # naranja
-    PIDE_MAS: "#e0c02e",    # amarillo
-    SIN_HISTORIAL: "#5b8fc9",  # azul
-    DATO_RARO: "#9aa0a6",   # gris
-    OK: "#4c9a5c",          # verde
+    PIDE_MENOS: "#FF5B5B",     # rojo
+    OLVIDO: "#FF9D3D",         # naranja
+    PIDE_MAS: "#F2CE45",       # amarillo
+    SIN_HISTORIAL: "#6FB0F0",  # azul
+    DATO_RARO: "#A5ABB3",      # gris
+    OK: "#4FCB7B",             # verde
 }
 
 ICONOS_TIPO = {

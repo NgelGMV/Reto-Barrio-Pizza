@@ -1,7 +1,9 @@
 """
 Dashboard de órdenes de compra · Barrio Pizza.
 
-Solo presentación: toda la lógica de negocio vive en `logica.py` y `proveedores.py`.
+Solo presentación: toda la lógica de negocio vive en `logica.py`, `proveedores.py`,
+`anomalias.py` y `chat.py`.
+
 Correr con:  streamlit run app.py
 """
 
@@ -22,17 +24,12 @@ import logica as L
 import proveedores as P
 
 CARPETA_ASSETS = Path(__file__).parent / "assets"
-
-
 EXTENSIONES_IMAGEN = (".png", ".jpg", ".jpeg", ".webp", ".svg")
 
 
 def buscar_imagen(base: str) -> Path | None:
-    """Busca `assets/<base>.<ext>` probando las extensiones habituales.
-
-    Los assets son opcionales a propósito: si el archivo no está, la app arranca
-    igual en vez de romperse por una imagen faltante.
-    """
+    """Busca `assets/<base>.<ext>`. Los assets son opcionales: si no están, la app
+    arranca igual en vez de romperse por una imagen faltante."""
     for extension in EXTENSIONES_IMAGEN:
         ruta = CARPETA_ASSETS / f"{base}{extension}"
         if ruta.is_file():
@@ -40,10 +37,10 @@ def buscar_imagen(base: str) -> Path | None:
     return None
 
 
-LOGO = buscar_imagen("logo")
-# La versión compacta del logo se lee mejor que la detallada a 16px en la
-# pestaña del navegador; si no está, se usa el logo principal.
-ICONO = buscar_imagen("icono") or LOGO
+# Sobre fondo negro conviene la versión del logo en blanco (`icono`); la versión
+# en negro solo se ve si se la monta sobre una tarjeta blanca.
+ICONO = buscar_imagen("icono")
+LOGO = ICONO or buscar_imagen("logo")
 
 st.set_page_config(
     page_title="Órdenes de compra · Barrio Pizza",
@@ -56,26 +53,88 @@ st.set_page_config(
 _fmt = L._fmt
 
 DESCRIPCIONES_TIPO = {
-    L.PIDE_MENOS: "pidió menos de lo que va a necesitar → puede quedarse sin producto",
-    L.OLVIDO: "no lo pidió, lo consume y el stock no alcanza",
-    L.PIDE_MAS: "pidió más de lo necesario → plata inmovilizada y riesgo de merma",
-    L.SIN_HISTORIAL: "no hay consumo previo para validar la cantidad",
-    L.DATO_RARO: "no está en el catálogo → hay que revisarlo a mano",
-    L.OK: "la cantidad pedida coincide con lo proyectado",
+    L.PIDE_MENOS: "pidió menos de lo que va a necesitar",
+    L.OLVIDO: "no lo pidió y el stock no alcanza",
+    L.PIDE_MAS: "pidió más de lo necesario",
+    L.SIN_HISTORIAL: "no hay consumo previo para validarlo",
+    L.DATO_RARO: "no está en el catálogo",
+    L.OK: "la cantidad pedida es la correcta",
 }
 
 AYUDA_METODO = {
-    L.METODO_PROMEDIO: "Promedio de las 6 semanas de histórico. Simple, pero una "
-                       "semana atípica lo distorsiona y no ve las tendencias.",
-    L.METODO_INTELIGENTE: "Descarta las semanas atípicas (mediana ± 3·MAD) y, si "
-                          "hay una tendencia real, la proyecta a la semana 7.",
+    L.METODO_PROMEDIO: "Promedio de las 6 semanas. Una semana atípica lo distorsiona.",
+    L.METODO_INTELIGENTE: "Descarta semanas atípicas y proyecta la tendencia real.",
 }
 
+GRIS = "#9A9AA2"
+BORDE = "#26262B"
+
 
 # ---------------------------------------------------------------------------
-# Datos (en caché: no se recalcula en cada interacción)
+# Estilos
 # ---------------------------------------------------------------------------
 
+st.markdown("""
+<style>
+  section[data-testid="stSidebar"] { width: 340px !important; }
+  .block-container { padding-top: 2.2rem; padding-bottom: 3rem; }
+
+  /* El primario del tema es blanco, así que las etiquetas de los filtros salen
+     blancas sobre blanco. Hay que forzarles el texto oscuro. */
+  span[data-baseweb="tag"], span[data-baseweb="tag"] span { color:#0A0A0B !important; }
+  span[data-baseweb="tag"] svg { fill:#0A0A0B !important; }
+
+  .fila { display:flex; gap:.7rem; flex-wrap:wrap; margin-bottom:1.1rem; }
+
+  /* Tarjetas de KPI */
+  .kpi { flex:1 1 150px; background:#151517; border:1px solid #26262B;
+         border-radius:12px; padding:.85rem 1rem; position:relative; overflow:hidden; }
+  .kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+                 background:var(--acc, #3A3A40); }
+  .kpi-num { font-size:2.1rem; font-weight:700; line-height:1.1; color:var(--acc,#F0EFEC); }
+  .kpi-lab { font-size:.74rem; text-transform:uppercase; letter-spacing:.06em;
+             color:#9A9AA2; margin-top:.15rem; }
+  .kpi-del { font-size:.72rem; color:#8A8A92; margin-top:.35rem; }
+
+  /* Tarjetas de sucursal */
+  .suc { flex:1 1 190px; background:#151517; border:1px solid #26262B;
+         border-top:3px solid var(--acc,#4FCB7B); border-radius:10px; padding:.8rem .95rem; }
+  .suc-nom { font-weight:600; font-size:.95rem; margin-bottom:.15rem; }
+  .suc-est { font-size:.78rem; color:var(--acc,#4FCB7B); font-weight:600;
+             text-transform:uppercase; letter-spacing:.05em; }
+  .suc-chips { margin-top:.55rem; display:flex; gap:.45rem; flex-wrap:wrap; }
+  .suc-chip { font-size:.75rem; background:#1E1E22; border:1px solid #2E2E34;
+              border-radius:20px; padding:.1rem .55rem; white-space:nowrap; }
+
+  /* Tarjetas de alerta */
+  .alerta { border-left:5px solid var(--acc); background:var(--bg);
+            border-radius:10px; padding:.8rem 1rem; margin:.4rem 0 .15rem 0; }
+  .alerta-top { display:flex; justify-content:space-between; gap:1rem;
+                flex-wrap:wrap; align-items:baseline; margin-bottom:.45rem; }
+  .alerta-tit { font-weight:600; }
+  .insignia { background:var(--acc); color:#0A0A0B; border-radius:5px;
+              padding:.1rem .5rem; font-size:.7rem; font-weight:700;
+              margin-right:.55rem; white-space:nowrap; letter-spacing:.03em; }
+  .alerta-meta { font-size:.76rem; color:#8A8A92; }
+  .alerta-msg { font-size:.95rem; line-height:1.5; margin-bottom:.55rem; }
+  .alerta-nums span { margin-right:1.2rem; font-size:.82rem; white-space:nowrap; }
+  .alerta-nums i { font-style:normal; color:#8A8A92; }
+
+  /* Leyenda */
+  .leyenda { display:flex; gap:.45rem; flex-wrap:wrap; margin:.1rem 0 1.3rem 0; }
+  .leyenda span { font-size:.76rem; border:1px solid #26262B; border-left:3px solid var(--acc);
+                  border-radius:6px; padding:.25rem .6rem; color:#B8B8BE; }
+  .leyenda b { color:#F0EFEC; font-weight:600; }
+
+  .titulo-seccion { font-size:.78rem; text-transform:uppercase; letter-spacing:.09em;
+                    color:#8A8A92; margin:.2rem 0 .5rem 0; font-weight:600; }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
+# Datos y secretos
+# ---------------------------------------------------------------------------
 
 CLAVE_ORDEN = "orden_csv"  # orden modificada desde la UI, si la hay
 
@@ -84,9 +143,8 @@ CLAVE_ORDEN = "orden_csv"  # orden modificada desde la UI, si la hay
 def cargar(orden_csv: str | None = None) -> L.Datos:
     """Los datos ya limpios.
 
-    `orden_csv` es la orden modificada desde la UI, serializada a texto. Se pasa
-    como string y no como DataFrame porque así Streamlit puede usarla de clave de
-    caché: dos órdenes iguales reutilizan el resultado, una distinta lo recalcula.
+    `orden_csv` es la orden modificada desde la UI, serializada a texto: así
+    Streamlit puede usarla de clave de caché.
     """
     if orden_csv is None:
         return L.cargar_datos()
@@ -98,27 +156,6 @@ def alertas_de(metodo: str, buffer: float, orden_csv: str | None = None) -> pd.D
     return L.construir_alertas(cargar(orden_csv), metodo=metodo, buffer=buffer)
 
 
-def _secreto(nombre: str) -> str | None:
-    """Lee un secreto de Streamlit y, si no hay, del entorno.
-
-    `st.secrets` levanta excepción cuando no existe el archivo de secrets, que es
-    el caso normal al correr en local sin chat: por eso el try.
-    """
-    try:
-        valor = st.secrets.get(nombre)
-    except Exception:
-        valor = None
-    return valor or os.environ.get(nombre)
-
-
-def obtener_clave_groq() -> str | None:
-    return _secreto("GROQ_API_KEY")
-
-
-def modelo_groq() -> str:
-    return _secreto("GROQ_MODELO") or CH.MODELO_POR_DEFECTO
-
-
 @st.cache_data(show_spinner=False)
 def historico_de(sucursal: str, ingrediente_id: str) -> pd.DataFrame:
     # El histórico no depende de la orden, así que siempre sale de los CSV.
@@ -127,42 +164,47 @@ def historico_de(sucursal: str, ingrediente_id: str) -> pd.DataFrame:
                    (consumo["ingrediente_id"] == ingrediente_id)]
 
 
+def _secreto(nombre: str) -> str | None:
+    """Lee un secreto de Streamlit y, si no hay, del entorno.
+
+    `st.secrets` levanta excepción cuando no existe el archivo, que es el caso
+    normal al correr en local sin chat: por eso el try.
+    """
+    try:
+        valor = st.secrets.get(nombre)
+    except Exception:
+        valor = None
+    return valor or os.environ.get(nombre)
+
+
 # ---------------------------------------------------------------------------
 # Piezas visuales
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(show_spinner=False)
-def marco_logo(ruta: Path) -> str:
-    """El logo incrustado en el HTML, sobre una tarjeta blanca.
-
-    Se incrusta en base64 en vez de usar `st.image` porque hace falta envolverlo
-    en un contenedor propio, y Streamlit no deja abrir un div alrededor de otro
-    elemento. El fondo blanco hace que se vea igual de prolijo tenga el archivo
-    transparencia o no.
-    """
-    tipos = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-             ".webp": "image/webp", ".svg": "image/svg+xml"}
-    mime = tipos.get(ruta.suffix.lower(), "image/png")
-    datos = base64.b64encode(ruta.read_bytes()).decode("ascii")
-    return (
-        '<div style="background:#fff;border-radius:14px;padding:.85rem;'
-        'margin:0 0 1rem 0;display:flex;justify-content:center;'
-        'box-shadow:0 1px 3px rgba(0,0,0,.08);">'
-        f'<img src="data:{mime};base64,{datos}" alt="Barrio Pizza"'
-        ' style="width:100%;max-width:170px;height:auto;display:block;"></div>'
-    )
-
-
-def tinte(color_hex: str, alfa: float = 0.13) -> str:
-    """Color de fondo suave, legible tanto en tema claro como oscuro."""
+def tinte(color_hex: str, alfa: float = 0.10) -> str:
     h = color_hex.lstrip("#")
     r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
     return f"rgba({r}, {g}, {b}, {alfa})"
 
 
+@st.cache_data(show_spinner=False)
+def logo_html(ruta: Path) -> str:
+    """El logo incrustado en base64. Se incrusta en el HTML en vez de usar
+    `st.image` para poder controlar el tamaño y el centrado."""
+    tipos = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+             ".webp": "image/webp", ".svg": "image/svg+xml"}
+    mime = tipos.get(ruta.suffix.lower(), "image/png")
+    datos = base64.b64encode(ruta.read_bytes()).decode("ascii")
+    return (
+        '<div style="display:flex;justify-content:center;margin:.2rem 0 1.2rem 0;">'
+        f'<img src="data:{mime};base64,{datos}" alt="Barrio Pizza" '
+        'style="width:100%;max-width:150px;height:auto;border-radius:10px;"></div>'
+    )
+
+
 def sin_icono(mensaje: str) -> str:
-    """El icono ya va en la etiqueta de la tarjeta; no hace falta repetirlo."""
+    """El icono ya va en la insignia de la tarjeta; no hace falta repetirlo."""
     for icono in L.ICONOS_TIPO.values():
         if mensaje.startswith(icono):
             return mensaje[len(icono):].strip()
@@ -170,63 +212,115 @@ def sin_icono(mensaje: str) -> str:
 
 
 def numeros_clave(fila: pd.Series) -> list[tuple[str, str]]:
-    """Los 3 números que la gerente necesita para decidir, en formatos."""
+    """Los números que la gerente necesita para decidir, siempre en formatos."""
     tipo = fila["tipo"]
     if tipo == L.DATO_RARO:
         pedidos = fila["formatos_pedidos"]
         return [("Pidió", "?" if pd.isna(pedidos) else f"{_fmt(pedidos)} formatos"),
                 ("Necesita", "no se puede calcular")]
     if tipo == L.SIN_HISTORIAL:
-        return [("Pidió", f"{_fmt(fila['formatos_pedidos'])}"),
+        return [("Pidió", _fmt(fila["formatos_pedidos"])),
                 ("Necesita", "sin histórico"),
-                ("Stock actual", f"{_fmt(fila['stock_actual'])} {fila['unidad_base']}")]
-
+                ("Stock", f"{_fmt(fila['stock_actual'])} {fila['unidad_base']}")]
     delta = fila["delta_formatos"]
-    signo = "+" if delta > 0 else ""
     return [("Necesita", _fmt(fila["formatos_recomendados"])),
             ("Pidió", _fmt(fila["formatos_pedidos"])),
-            ("Diferencia", f"{signo}{_fmt(delta)}")]
+            ("Diferencia", f"{'+' if delta > 0 else ''}{_fmt(delta)}")]
 
 
 def tarjeta_html(fila: pd.Series) -> str:
-    """Tarjeta de alerta. Se arma en UNA sola línea: si el HTML llevara saltos de
-    línea con sangría, Markdown interpretaría esas líneas como bloque de código."""
+    """Tarjeta de alerta, en una sola línea de HTML: si llevara saltos con
+    sangría, Markdown interpretaría esas líneas como bloque de código."""
     tipo = fila["tipo"]
     color = L.COLORES_TIPO[tipo]
-    chips = "".join(
-        f'<span style="margin-right:1.1rem;white-space:nowrap;">'
-        f'<span style="opacity:.7;">{html.escape(etiqueta)}:</span> '
-        f'<b>{html.escape(valor)}</b></span>'
+    numeros = "".join(
+        f'<span><i>{html.escape(etiqueta)}</i> <b>{html.escape(valor)}</b></span>'
         for etiqueta, valor in numeros_clave(fila)
     )
-    insignia = (
-        f'<span style="background:{color};color:#fff;border-radius:4px;'
-        f'padding:.08rem .45rem;font-size:.72rem;margin-right:.5rem;'
-        f'white-space:nowrap;">{L.ICONOS_TIPO[tipo]} '
-        f'{html.escape(L.ETIQUETAS_TIPO[tipo].upper())}</span>'
-    )
-    encabezado = (
-        '<div style="display:flex;justify-content:space-between;gap:1rem;'
-        'flex-wrap:wrap;align-items:baseline;margin-bottom:.4rem;">'
-        f'<span style="font-weight:600;">{insignia}'
-        f'{html.escape(str(fila["sucursal"]))} · {html.escape(str(fila["nombre"]))}</span>'
-        f'<span style="font-size:.78rem;opacity:.7;">'
-        f'{html.escape(str(fila["proveedor"]))} · '
-        f'{html.escape(str(fila["formato_compra"]))}</span></div>'
-    )
-    cuerpo = (
-        f'<div style="font-size:.95rem;line-height:1.45;margin-bottom:.5rem;">'
-        f'{html.escape(sin_icono(str(fila["mensaje"])))}</div>'
-    )
     return (
-        f'<div style="border-left:6px solid {color};background:{tinte(color)};'
-        f'border-radius:6px;padding:.7rem 1rem;margin:.35rem 0 .1rem 0;">'
-        f'{encabezado}{cuerpo}<div style="font-size:.82rem;">{chips}</div></div>'
+        f'<div class="alerta" style="--acc:{color};--bg:{tinte(color)}">'
+        f'<div class="alerta-top"><span class="alerta-tit">'
+        f'<span class="insignia">{L.ICONOS_TIPO[tipo]} '
+        f'{html.escape(L.ETIQUETAS_TIPO[tipo].upper())}</span>'
+        f'{html.escape(str(fila["sucursal"]))} · {html.escape(str(fila["nombre"]))}</span>'
+        f'<span class="alerta-meta">{html.escape(str(fila["proveedor"]))} · '
+        f'{html.escape(str(fila["formato_compra"]))}</span></div>'
+        f'<div class="alerta-msg">{html.escape(sin_icono(str(fila["mensaje"])))}</div>'
+        f'<div class="alerta-nums">{numeros}</div></div>'
     )
+
+
+def fila_kpis(kpis: dict, kpis_otro: dict, etiqueta_otro: str) -> str:
+    """Los números de arriba, con el contraste contra el otro método."""
+    definicion = [
+        ("total_alertas", "Alertas totales", "#F0EFEC"),
+        ("quiebres", "Riesgo de quiebre", L.COLORES_TIPO[L.PIDE_MENOS]),
+        ("olvidos", "Olvidos", L.COLORES_TIPO[L.OLVIDO]),
+        ("excesos", "Excesos", L.COLORES_TIPO[L.PIDE_MAS]),
+        ("no_verificables", "No verificables", L.COLORES_TIPO[L.DATO_RARO]),
+    ]
+    tarjetas = []
+    for clave, etiqueta, color in definicion:
+        valor = kpis[clave]
+        diferencia = valor - kpis_otro[clave]
+        if diferencia:
+            flecha = "↑" if diferencia > 0 else "↓"
+            delta = f'{flecha} {abs(diferencia)} vs. {html.escape(etiqueta_otro.lower())}'
+        else:
+            delta = "sin cambios con el otro método"
+        tarjetas.append(
+            f'<div class="kpi" style="--acc:{color}"><div class="kpi-num">{valor}</div>'
+            f'<div class="kpi-lab">{html.escape(etiqueta)}</div>'
+            f'<div class="kpi-del">{delta}</div></div>'
+        )
+    return f'<div class="fila">{"".join(tarjetas)}</div>'
+
+
+def panel_sucursales(alertas: pd.DataFrame, sucursales: list[str]) -> str:
+    """El estado de cada sucursal de un vistazo: es la vista que más rápido
+    contesta la pregunta real de la gerente, que es a quién hay que llamar."""
+    tarjetas = []
+    for sucursal in sucursales:
+        de_la_sucursal = alertas[alertas["sucursal"] == sucursal]
+        conteos = de_la_sucursal["tipo"].value_counts()
+        total = int(sum(conteos.get(t, 0) for t in L.TIPOS_ALERTA))
+
+        if total == 0:
+            color, estado = L.COLORES_TIPO[L.OK], "Todo en orden"
+        else:
+            # El color lo manda la alerta más grave que tenga la sucursal.
+            peor = min((t for t in L.TIPOS_ALERTA if conteos.get(t, 0)),
+                       key=lambda t: L.SEVERIDAD[t])
+            color = L.COLORES_TIPO[peor]
+            estado = f"{total} alerta{'s' if total != 1 else ''}"
+
+        chips = "".join(
+            f'<span class="suc-chip" style="color:{L.COLORES_TIPO[t]}">'
+            f'{L.ICONOS_TIPO[t]} {int(conteos[t])}</span>'
+            for t in L.TIPOS_ALERTA if conteos.get(t, 0)
+        ) or '<span class="suc-chip">Nada que corregir</span>'
+
+        tarjetas.append(
+            f'<div class="suc" style="--acc:{color}">'
+            f'<div class="suc-nom">{html.escape(str(sucursal))}</div>'
+            f'<div class="suc-est">{html.escape(estado)}</div>'
+            f'<div class="suc-chips">{chips}</div></div>'
+        )
+    return f'<div class="fila">{"".join(tarjetas)}</div>'
+
+
+def leyenda(tipos_visibles: list[str]) -> str:
+    chips = "".join(
+        f'<span style="--acc:{L.COLORES_TIPO[t]}"><b>{L.ICONOS_TIPO[t]} '
+        f'{html.escape(L.ETIQUETAS_TIPO[t])}</b> — '
+        f'{html.escape(DESCRIPCIONES_TIPO[t])}</span>'
+        for t in tipos_visibles
+    )
+    return f'<div class="leyenda">{chips}</div>'
 
 
 def grafico_historico(fila: pd.Series) -> None:
-    """Las 6 semanas de consumo + la proyección, con la semana atípica marcada."""
+    """Las 6 semanas de consumo y la proyección, con la semana atípica marcada."""
     historico = historico_de(fila["sucursal"], fila["ingrediente_id"])
     if historico.empty:
         return
@@ -244,17 +338,17 @@ def grafico_historico(fila: pd.Series) -> None:
     proyeccion = fila["consumo_proyectado"]
     if pd.notna(proyeccion):
         siguiente = "S" + str(int(historico["semana_num"].max()) + 1)
-        df = pd.concat([df, pd.DataFrame([{"Semana": siguiente, "Proyección": float(proyeccion)}])],
+        df = pd.concat([df, pd.DataFrame([{"Semana": siguiente,
+                                           "Proyección": float(proyeccion)}])],
                        ignore_index=True)
 
     columnas = [c for c in ("Consumo real", "Semana atípica (descartada)", "Proyección")
                 if c in df.columns and df[c].notna().any()]
-    colores = {"Consumo real": "#5b8fc9",
-               "Semana atípica (descartada)": "#d64545",
-               "Proyección": "#4c9a5c"}
+    colores = {"Consumo real": "#6FB0F0",
+               "Semana atípica (descartada)": L.COLORES_TIPO[L.PIDE_MENOS],
+               "Proyección": L.COLORES_TIPO[L.OK]}
     st.bar_chart(df.set_index("Semana")[columnas],
-                 color=[colores[c] for c in columnas],
-                 height=200)
+                 color=[colores[c] for c in columnas], height=190)
 
 
 def detalle_calculo(fila: pd.Series, metodo: str) -> None:
@@ -262,10 +356,10 @@ def detalle_calculo(fila: pd.Series, metodo: str) -> None:
     unidad = fila["unidad_base"]
     if fila["tipo"] == L.DATO_RARO:
         st.markdown(
-            f"**`{fila['ingrediente_id']}` no está en el catálogo de insumos.** Sin catálogo "
-            "no hay factor de conversión ni consumo histórico, así que no se puede validar "
-            "la cantidad ni convertirla a kg/L/unidades.\n\n"
-            "Puede ser un insumo nuevo que falta cargar, o un error de tipeo en la orden."
+            f"**`{fila['ingrediente_id']}` no está en el catálogo de insumos.** Sin "
+            "catálogo no hay factor de conversión ni consumo histórico, así que no se "
+            "puede validar la cantidad. Puede ser un insumo nuevo sin cargar o un error "
+            "de tipeo en la orden."
         )
         return
 
@@ -283,14 +377,13 @@ def detalle_calculo(fila: pd.Series, metodo: str) -> None:
         lineas.append("- **Consumo proyectado:** no hay histórico para este insumo.")
 
     lineas.append(f"- **Stock actual:** {_fmt(fila['stock_actual'], 2)} {unidad}")
-
     if pd.notna(fila["necesidad_base"]):
         lineas.append(
-            f"- **Necesidad** = proyección − stock = **{_fmt(fila['necesidad_base'], 2)} {unidad}** "
-            "_(nunca negativa: si el stock alcanza, no hay que comprar)_"
+            f"- **Necesidad** = proyección − stock = "
+            f"**{_fmt(fila['necesidad_base'], 2)} {unidad}**"
         )
         lineas.append(
-            f"- **Formatos recomendados** = ⌈{_fmt(fila['necesidad_base'], 2)} ÷ "
+            f"- **Formatos** = ⌈{_fmt(fila['necesidad_base'], 2)} ÷ "
             f"{_fmt(fila['unidad_base_por_formato'], 3)}⌉ = "
             f"**{_fmt(fila['formatos_recomendados'])}** ({fila['formato_compra']}) "
             "_(se redondea hacia arriba: no existe medio formato)_"
@@ -305,21 +398,6 @@ def detalle_calculo(fila: pd.Series, metodo: str) -> None:
 
     if fila["tipo"] in (L.PIDE_MAS, L.PIDE_MENOS, L.OLVIDO, L.OK):
         grafico_historico(fila)
-
-
-def leyenda(tipos_visibles: list[str]) -> None:
-    chips = "".join(
-        f'<span style="background:{tinte(L.COLORES_TIPO[t])};'
-        f'border-left:4px solid {L.COLORES_TIPO[t]};border-radius:4px;'
-        f'padding:.28rem .6rem;font-size:.78rem;">'
-        f'<b>{L.ICONOS_TIPO[t]} {html.escape(L.ETIQUETAS_TIPO[t])}</b> — '
-        f'{html.escape(DESCRIPCIONES_TIPO[t])}</span>'
-        for t in tipos_visibles
-    )
-    st.markdown(
-        f'<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin:.2rem 0 1rem 0;">{chips}</div>',
-        unsafe_allow_html=True,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -344,17 +422,19 @@ except (FileNotFoundError, ValueError) as error:
 
 
 # ---------------------------------------------------------------------------
-# Barra lateral: método de proyección y filtros
+# Barra lateral
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
     if LOGO:
-        st.markdown(marco_logo(LOGO), unsafe_allow_html=True)
+        st.markdown(logo_html(LOGO), unsafe_allow_html=True)
     else:
         st.header("🍕 Barrio Pizza")
-    st.subheader("Método de proyección")
+
+    st.markdown('<div class="titulo-seccion">Método de proyección</div>',
+                unsafe_allow_html=True)
     metodo = st.radio(
-        "¿Cómo estimamos el consumo de la próxima semana?",
+        "Método de proyección",
         options=[L.METODO_PROMEDIO, L.METODO_INTELIGENTE],
         format_func=lambda m: L.ETIQUETAS_METODO[m],
         index=1,
@@ -365,10 +445,9 @@ with st.sidebar:
 
     with st.expander("⚙️ Ajustes avanzados"):
         buffer_pct = st.slider(
-            "Colchón de seguridad", min_value=0, max_value=30, value=int(L.BUFFER * 100), step=5,
-            format="%d%%",
-            help="Pide un % extra sobre el consumo proyectado para absorber imprevistos. "
-                 "0% = exactamente lo proyectado.",
+            "Colchón de seguridad", min_value=0, max_value=30,
+            value=int(L.BUFFER * 100), step=5, format="%d%%",
+            help="Pide un % extra sobre lo proyectado para absorber imprevistos.",
         )
     buffer = buffer_pct / 100.0
 
@@ -380,96 +459,130 @@ sucursales_disponibles = sorted(datos.consumo["sucursal"].dropna().unique())
 proveedores_disponibles = sorted(alertas_completas["proveedor"].dropna().unique())
 
 with st.sidebar:
-    st.divider()
-    st.subheader("Filtros")
+    st.markdown('<div class="titulo-seccion">Filtros</div>', unsafe_allow_html=True)
     sucursales = st.multiselect("Sucursal", sucursales_disponibles,
                                 default=sucursales_disponibles)
     tipos = st.multiselect(
-        "Tipo de alerta",
-        options=list(L.TIPOS_ALERTA),
-        default=list(L.TIPOS_ALERTA),
+        "Tipo de alerta", options=list(L.TIPOS_ALERTA), default=list(L.TIPOS_ALERTA),
         format_func=lambda t: f"{L.ICONOS_TIPO[t]} {L.ETIQUETAS_TIPO[t]}",
     )
     proveedores_sel = st.multiselect("Proveedor", proveedores_disponibles,
                                      default=proveedores_disponibles)
     mostrar_ok = st.checkbox("Mostrar también lo que está OK", value=False)
 
-    st.divider()
-    if datos.avisos:
-        with st.expander(f"⚠️ Avisos de calidad de datos ({len(datos.avisos)})"):
-            for aviso in datos.avisos:
-                st.caption(f"• {aviso}")
-    else:
-        st.caption("✅ Los 4 archivos cargaron sin problemas de formato.")
-    st.caption(f"Insumos en catálogo: {len(datos.catalogo)} · "
-               f"Pares (sucursal, insumo) revisados: {len(alertas_completas)}")
-
 tipos_activos = list(tipos) + ([L.OK] if mostrar_ok else [])
 filtradas = L.filtrar(alertas_completas, sucursales, tipos_activos, proveedores_sel)
 filtradas_otro = L.filtrar(alertas_otro_metodo, sucursales, tipos_activos, proveedores_sel)
-
 kpis = L.resumen_kpis(filtradas)
 kpis_otro = L.resumen_kpis(filtradas_otro)
 
 
 # ---------------------------------------------------------------------------
-# Encabezado y KPIs
+# Chat, en la barra lateral para no ocupar la pantalla del dashboard
+# ---------------------------------------------------------------------------
+
+with st.sidebar:
+    st.divider()
+    with st.expander("💬 Preguntar a los datos"):
+        clave_groq = _secreto("GROQ_API_KEY")
+        if not clave_groq:
+            st.caption(
+                "Falta la clave de Groq (gratuita, sin tarjeta). Ponela en "
+                "`.streamlit/secrets.toml` como `GROQ_API_KEY`, o en *Manage app → "
+                "Settings → Secrets* si es la app publicada."
+            )
+        else:
+            historial = st.session_state.setdefault("chat", [])
+            st.caption("Responde solo con las alertas que estás viendo.")
+
+            if not historial:
+                for sugerencia in CH.PREGUNTAS_SUGERIDAS[:3]:
+                    if st.button(sugerencia, use_container_width=True,
+                                 key=f"sug_{sugerencia[:18]}"):
+                        st.session_state["pregunta_pendiente"] = sugerencia
+                        st.rerun()
+
+            for mensaje in historial:
+                with st.chat_message(mensaje["role"]):
+                    st.markdown(mensaje["content"])
+
+            pregunta = st.chat_input("Escribí tu pregunta…")
+            pregunta = st.session_state.pop("pregunta_pendiente", None) or pregunta
+
+            if pregunta:
+                historial.append({"role": "user", "content": pregunta})
+                with st.chat_message("user"):
+                    st.markdown(pregunta)
+                with st.chat_message("assistant"):
+                    with st.spinner("Pensando…"):
+                        try:
+                            respuesta = CH.preguntar(
+                                pregunta,
+                                # Se le pasa lo filtrado: si la gerente filtró una
+                                # sucursal, el chat habla de lo que está viendo.
+                                filtradas if not filtradas.empty else alertas_completas,
+                                api_key=clave_groq,
+                                metodo=metodo,
+                                modelo=_secreto("GROQ_MODELO") or CH.MODELO_POR_DEFECTO,
+                                historial=historial[:-1],
+                            )
+                        except CH.ErrorChat as error:
+                            respuesta = f"⚠️ {error}"
+                    st.markdown(respuesta)
+                historial.append({"role": "assistant", "content": respuesta})
+
+            if historial and st.button("Borrar la conversación",
+                                       use_container_width=True):
+                st.session_state["chat"] = []
+                st.rerun()
+
+    st.divider()
+    if datos.avisos:
+        with st.expander(f"⚠️ Calidad de los datos ({len(datos.avisos)})"):
+            for aviso in datos.avisos:
+                st.caption(f"• {aviso}")
+    else:
+        st.caption("✅ Los 4 archivos cargaron sin problemas de formato.")
+
+
+# ---------------------------------------------------------------------------
+# Encabezado
 # ---------------------------------------------------------------------------
 
 st.title("Revisión de órdenes de compra")
-if orden_csv is not None:
-    st.warning(
-        "Estás viendo una **orden modificada desde la app**, no el archivo original. "
-        "Podés volver al original en la pestaña «Editar la orden».",
-        icon="✏️",
-    )
 st.caption(
     f"Semana en curso · {len(sucursales)} de {len(sucursales_disponibles)} sucursales · "
     f"Proyección: **{L.ETIQUETAS_METODO[metodo]}**"
-    + (f" · Colchón de seguridad: {buffer_pct}%" if buffer_pct else "")
+    + (f" · Colchón: {buffer_pct}%" if buffer_pct else "")
 )
 
-
-def metrica(columna, etiqueta: str, clave: str, ayuda: str) -> None:
-    """KPI con la diferencia contra el otro método de proyección."""
-    diferencia = kpis[clave] - kpis_otro[clave]
-    columna.metric(
-        etiqueta,
-        kpis[clave],
-        delta=None if diferencia == 0 else diferencia,
-        delta_color="inverse",  # menos alertas es mejor: se muestra en verde
-        help=f"{ayuda} · La flecha compara contra «{L.ETIQUETAS_METODO[otro_metodo]}».",
-        border=True,
+if orden_csv is not None:
+    st.warning(
+        "Estás viendo una **orden modificada desde la app**, no el archivo original.",
+        icon="✏️",
     )
 
+st.markdown(fila_kpis(kpis, kpis_otro, L.ETIQUETAS_METODO[otro_metodo]),
+            unsafe_allow_html=True)
 
-# Las dos últimas columnas van más anchas: sus textos son los más largos.
-c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1, 1.3, 1.5])
-metrica(c1, "Alertas totales", "total_alertas", "Líneas de la orden que requieren atención.")
-metrica(c2, "🔴 Quiebres", "quiebres", "Pidió menos de lo necesario.")
-metrica(c3, "🟡 Excesos", "excesos", "Pidió más de lo necesario.")
-metrica(c4, "🟠 Olvidos", "olvidos", "No lo pidió y el stock no alcanza.")
-metrica(c5, "⚪ No verificables", "no_verificables", "No están en el catálogo.")
-peor = kpis["alertas_peor_sucursal"]
-c6.metric("Sucursal con más alertas",
-          f"{peor} alerta{'s' if peor != 1 else ''}" if peor else "—",
-          delta=kpis["sucursal_mas_alertas"] if peor else None,
-          delta_color="off", border=True)
+st.markdown('<div class="titulo-seccion">Estado por sucursal</div>',
+            unsafe_allow_html=True)
+st.markdown(panel_sucursales(filtradas, sucursales or sucursales_disponibles),
+            unsafe_allow_html=True)
 
-st.markdown("##### Cómo leer esto")
-leyenda(list(L.TIPOS_ALERTA) + ([L.OK] if mostrar_ok else []))
+st.markdown(leyenda(list(L.TIPOS_ALERTA) + ([L.OK] if mostrar_ok else [])),
+            unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
 # Contenido principal
 # ---------------------------------------------------------------------------
 
-tab_alertas, tab_raras, tab_proveedores, tab_editar, tab_chat = st.tabs([
+tab_alertas, tab_raras, tab_proveedores, tab_editar = st.tabs([
     "🚨 Alertas",
     "🔎 Órdenes raras",
-    "📦 Pedido corregido por proveedor",
+    "📦 Pedido por proveedor",
     "✏️ Editar la orden",
-    "💬 Preguntar",
 ])
 
 with tab_alertas:
@@ -479,61 +592,45 @@ with tab_alertas:
         for tipo in sorted(set(filtradas["tipo"]), key=lambda t: L.SEVERIDAD[t]):
             grupo = filtradas[filtradas["tipo"] == tipo]
             st.markdown(
-                f"#### {L.ICONOS_TIPO[tipo]} {L.ETIQUETAS_TIPO[tipo]} "
-                f"<span style='opacity:.55;font-size:.8em;'>({len(grupo)})</span>",
+                f'<div class="titulo-seccion" style="margin-top:1rem">'
+                f'{L.ICONOS_TIPO[tipo]} {html.escape(L.ETIQUETAS_TIPO[tipo])} '
+                f'({len(grupo)})</div>',
                 unsafe_allow_html=True,
             )
             for _, alerta in grupo.iterrows():
                 st.markdown(tarjeta_html(alerta), unsafe_allow_html=True)
                 with st.expander("Ver cómo se calculó"):
                     detalle_calculo(alerta, metodo)
-            st.write("")
 
 with tab_raras:
-    st.markdown(
-        "Las alertas miran **cada sucursal contra sí misma**: lo que pidió contra lo "
-        "que ella va a consumir. Acá se mira otra cosa: si una sucursal pide un insumo "
-        "**distinto a como lo piden las demás**, midiendo cuántas semanas de consumo "
-        "cubre cada pedido. Es un número sin unidades, así que se puede comparar "
-        "harina contra albahaca."
-    )
+    st.caption("Quién pide distinto al resto de la cadena, para el mismo insumo.")
     raras = AN.ordenes_raras(
         L.filtrar(alertas_completas, sucursales, None, proveedores_sel)
     )
     if raras.empty:
-        st.success(
-            "Ninguna sucursal se sale del patrón del resto de la cadena con los "
-            "filtros elegidos."
-        )
+        st.success("Ninguna sucursal se sale del patrón del resto.")
     else:
-        novedades = int((~raras["ya_alertado"]).sum())
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Hallazgos", len(raras), border=True)
-        c2.metric("Sin alerta propia", novedades,
-                  help="Solo se ven comparando sucursales entre sí.", border=True)
-        c3.metric("Sucursales involucradas", raras["sucursal"].nunique(), border=True)
-
         for _, fila in raras.iterrows():
             if fila["ya_alertado"]:
-                color, etiqueta = "#8a8a8a", f"También tiene alerta: {L.ETIQUETAS_TIPO[fila['tipo_alerta']]}"
+                color = "#8A8A92"
+                etiqueta = f"Ya tiene alerta: {L.ETIQUETAS_TIPO[fila['tipo_alerta']]}"
             else:
-                color, etiqueta = "#6b5bd6", "Solo se ve comparando sucursales"
+                color = "#B58CF0"
+                etiqueta = "Solo se ve comparando sucursales"
             st.markdown(
-                f'<div style="border-left:6px solid {color};background:{tinte(color)};'
-                f'border-radius:6px;padding:.7rem 1rem;margin:.35rem 0;">'
-                f'<div style="margin-bottom:.4rem;">'
-                f'<span style="background:{color};color:#fff;border-radius:4px;'
-                f'padding:.08rem .45rem;font-size:.72rem;white-space:nowrap;">'
+                f'<div class="alerta" style="--acc:{color};--bg:{tinte(color)}">'
+                f'<div class="alerta-top"><span class="insignia">'
                 f'{html.escape(etiqueta)}</span></div>'
-                f'<div style="font-size:.95rem;line-height:1.45;">'
+                f'<div class="alerta-msg">'
                 f'{html.escape(sin_icono(str(fila["mensaje"])))}</div></div>',
                 unsafe_allow_html=True,
             )
-
-        with st.expander("Ver el detalle numérico"):
-            st.caption(
-                "«Cobertura» = cuántas semanas de consumo cubre lo pedido. "
-                "«Pares» = la mediana de las otras sucursales para el mismo insumo."
+        with st.expander("Cómo se mide"):
+            st.markdown(
+                "Se compara la **cobertura** de cada pedido —cuántas semanas de "
+                "consumo cubre— contra la **mediana de las otras sucursales** para "
+                "ese mismo insumo. Al ser un cociente no tiene unidades, así que se "
+                "puede comparar harina contra albahaca."
             )
             st.dataframe(
                 raras.assign(
@@ -546,92 +643,61 @@ with tab_raras:
                     "cobertura_pares": "Cobertura de los pares",
                     "veces_vs_pares": "Veces vs. pares",
                     "formatos_segun_pares": "Según los pares",
-                    "diferencia_formatos": "Diferencia",
                 })[["Sucursal", "Insumo", "Pidió", "Cobertura",
-                    "Cobertura de los pares", "Veces vs. pares",
-                    "Según los pares", "Diferencia"]],
+                    "Cobertura de los pares", "Veces vs. pares", "Según los pares"]],
                 hide_index=True, width="stretch",
             )
-            st.dataframe(AN.resumen_por_sucursal(raras).rename(columns={
-                "sucursal": "Sucursal", "hallazgos": "Hallazgos",
-                "por_encima": "Pide de más que sus pares",
-                "por_debajo": "Pide de menos que sus pares",
-            }), hide_index=True, width="stretch")
 
 with tab_proveedores:
-    st.markdown(
-        "Esta es la orden **ya corregida**: reemplaza las cantidades pedidas por las "
-        "recomendadas y las reagrupa por proveedor, que es como se envían las órdenes."
-    )
-    # El pedido corregido se arma sobre TODO lo revisado (se ignora el filtro de
-    # tipo de alerta): si no, se caerían de la orden los insumos que ya estaban
-    # bien pedidos y el proveedor recibiría solo las correcciones.
+    st.caption("La orden ya corregida, agrupada como se le manda a cada proveedor.")
+    # Se ignora el filtro de tipo de alerta: una orden para el proveedor tiene que
+    # incluir también lo que ya estaba bien pedido, no solo las correcciones.
     pedido = P.pedido_corregido(
         L.filtrar(alertas_completas, sucursales, None, proveedores_sel)
     )
-
     if pedido.empty:
         st.info("No hay nada para pedir con los filtros elegidos.")
     else:
         resumen = P.resumen_proveedores(pedido)
         cambios = P.comparar_con_lo_pedido(pedido)
-        col_a, col_b, col_c = st.columns(3)
-        col_a.metric("Proveedores", len(resumen), border=True)
-        col_b.metric("Formatos a comprar", _fmt(pedido["formatos_a_pedir"].sum()), border=True)
-        col_c.metric("Líneas corregidas", len(cambios),
-                     help="Líneas donde la cantidad recomendada difiere de la pedida.",
-                     border=True)
-
+        st.markdown(
+            f'<div class="fila">'
+            f'<div class="kpi"><div class="kpi-num">{len(resumen)}</div>'
+            f'<div class="kpi-lab">Proveedores</div></div>'
+            f'<div class="kpi"><div class="kpi-num">'
+            f'{_fmt(pedido["formatos_a_pedir"].sum())}</div>'
+            f'<div class="kpi-lab">Formatos a comprar</div></div>'
+            f'<div class="kpi" style="--acc:{L.COLORES_TIPO[L.PIDE_MAS]}">'
+            f'<div class="kpi-num">{len(cambios)}</div>'
+            f'<div class="kpi-lab">Líneas corregidas</div></div></div>',
+            unsafe_allow_html=True,
+        )
         proveedor = st.selectbox(
-            "Elegí el proveedor para ver su orden",
-            options=resumen["proveedor"].tolist(),
-            format_func=lambda p: f"{p} — {int(resumen.loc[resumen['proveedor'] == p, 'insumos'].iloc[0])} insumos",
+            "Proveedor", options=resumen["proveedor"].tolist(),
+            format_func=lambda p: (
+                f"{p} — {int(resumen.loc[resumen['proveedor'] == p, 'insumos'].iloc[0])} insumos"),
         )
         matriz = P.matriz_proveedor(pedido, proveedor)
         st.dataframe(matriz, hide_index=True, width="stretch")
         st.download_button(
-            f"⬇️ Descargar la orden de {proveedor} (CSV)",
+            f"⬇️ Descargar la orden de {proveedor}",
             data=P.a_csv(matriz),
             file_name=f"pedido_{proveedor.lower().replace(' ', '_').replace('.', '')}.csv",
             mime="text/csv",
         )
-
-        with st.expander("Ver el detalle completo de todos los proveedores"):
-            st.dataframe(
-                pedido.rename(columns={
-                    "proveedor": "Proveedor", "nombre": "Insumo",
-                    "formato_compra": "Formato", "sucursal": "Sucursal",
-                    "formatos_pedidos": "Pidió", "formatos_a_pedir": "Debería pedir",
-                    "cambio_vs_pedido": "Corrección", "total_unidad_base": "Total (unidad base)",
-                    "unidad_base": "Unidad", "origen": "Origen",
-                })[["Proveedor", "Insumo", "Formato", "Sucursal", "Pidió",
-                    "Debería pedir", "Corrección", "Total (unidad base)", "Unidad", "Origen"]],
-                hide_index=True, width="stretch",
-            )
-            st.download_button(
-                "⬇️ Descargar el pedido corregido completo (CSV)",
-                data=P.a_csv(pedido),
-                file_name="pedido_corregido_completo.csv",
-                mime="text/csv",
-            )
-
         sin_proveedor = filtradas[filtradas["tipo"] == L.DATO_RARO]
         if not sin_proveedor.empty:
             st.warning(
                 f"Quedaron fuera {len(sin_proveedor)} línea(s) sin proveedor conocido "
                 f"({', '.join(sorted(set(sin_proveedor['ingrediente_id'])))}): "
-                "no están en el catálogo, hay que resolverlas a mano."
+                "no están en el catálogo."
             )
 
 with tab_editar:
-    st.markdown(
-        "Probá otra orden y mirá cómo cambian las alertas. Podés **subir otro CSV** "
-        "o **editar las cantidades a mano** en la tabla."
-    )
+    st.caption("Probá otra orden y mirá cómo cambian las alertas.")
 
-    st.subheader("Subir otra orden")
     subido = st.file_uploader(
-        "Un CSV con las columnas `sucursal`, `ingrediente_id` y `cantidad_formatos`",
+        "Subir otro CSV (columnas: sucursal, ingrediente_id, cantidad_formatos)",
         type=["csv"],
     )
     if subido is not None and st.button("Usar este archivo", type="primary"):
@@ -646,18 +712,18 @@ with tab_editar:
             st.error(f"No se pudo usar ese archivo: {error}")
 
     st.divider()
-    st.subheader("Editar las cantidades")
 
     catalogo_nombres = datos.catalogo[["ingrediente_id", "nombre", "formato_compra"]]
     orden_vista = datos.orden.merge(catalogo_nombres, on="ingrediente_id", how="left")
     orden_vista["nombre"] = orden_vista["nombre"].fillna(orden_vista["ingrediente_id"])
     orden_vista["formato_compra"] = orden_vista["formato_compra"].fillna("—")
+    # La columna editable va al final, que es donde uno espera escribir.
+    orden_vista = orden_vista[["sucursal", "nombre", "formato_compra",
+                               "ingrediente_id", "cantidad_formatos"]]
 
     eleccion = st.selectbox("Sucursal a editar", ["Todas"] + sucursales_disponibles)
-    if eleccion == "Todas":
-        vista = orden_vista
-    else:
-        vista = orden_vista[orden_vista["sucursal"] == eleccion]
+    vista = (orden_vista if eleccion == "Todas"
+             else orden_vista[orden_vista["sucursal"] == eleccion])
 
     with st.form("editor_orden"):
         editada = st.data_editor(
@@ -670,21 +736,17 @@ with tab_editar:
                 "cantidad_formatos": st.column_config.NumberColumn(
                     "Cantidad (formatos)", min_value=0, step=1),
             },
-            num_rows="dynamic",
-            hide_index=True,
-            width="stretch",
-            height=340,
+            num_rows="dynamic", hide_index=True, width="stretch", height=320,
             key="tabla_orden",
         )
-        aplicar = st.form_submit_button("Aplicar cambios y recalcular alertas",
-                                        type="primary")
+        aplicar = st.form_submit_button("Aplicar cambios y recalcular", type="primary")
 
     if aplicar:
         if eleccion == "Todas":
             resultado = editada
         else:
-            # Solo se editó una sucursal: hay que devolver también las demás,
-            # si no la orden quedaría con una sola sucursal.
+            # Solo se editó una sucursal: hay que devolver también las demás, si no
+            # la orden quedaría con una sola sucursal.
             resto = orden_vista[orden_vista["sucursal"] != eleccion]
             resultado = pd.concat([resto, editada], ignore_index=True)
         columnas = ["sucursal", "ingrediente_id", "cantidad_formatos"]
@@ -699,80 +761,8 @@ with tab_editar:
     else:
         columna_reset.caption("Estás viendo la orden original del CSV.")
     columna_descarga.download_button(
-        "⬇️ Descargar esta orden (CSV)",
+        "⬇️ Descargar esta orden",
         data=datos.orden.to_csv(index=False).encode("utf-8-sig"),
         file_name="orden_compra_semana.csv",
         mime="text/csv",
     )
-
-with tab_chat:
-    st.markdown(
-        "Preguntá en español sobre la orden de esta semana. El modelo responde "
-        "**solo con las alertas ya calculadas**, así que no puede contradecir al "
-        "dashboard ni inventar cantidades."
-    )
-
-    clave_groq = obtener_clave_groq()
-    if not clave_groq:
-        st.info(
-            "Para activar el chat hace falta una clave gratuita de Groq "
-            "(sin tarjeta de crédito).",
-            icon="🔑",
-        )
-        with st.expander("Cómo activarlo"):
-            st.markdown(
-                "1. Entrá a **console.groq.com** y creá una API key.\n"
-                "2. **En local:** creá el archivo `.streamlit/secrets.toml` con:\n"
-                "   ```toml\n   GROQ_API_KEY = \"gsk_tu_clave\"\n   ```\n"
-                "3. **En Streamlit Cloud:** *Manage app → Settings → Secrets* y pegá "
-                "la misma línea.\n\n"
-                "El archivo de secrets está en `.gitignore`: la clave nunca se sube "
-                "al repositorio."
-            )
-    else:
-        historial = st.session_state.setdefault("chat", [])
-
-        if not historial:
-            st.caption("Probá con una de estas:")
-            columnas_sugerencias = st.columns(len(CH.PREGUNTAS_SUGERIDAS))
-            for columna, sugerencia in zip(columnas_sugerencias, CH.PREGUNTAS_SUGERIDAS):
-                if columna.button(sugerencia, use_container_width=True):
-                    st.session_state["pregunta_pendiente"] = sugerencia
-                    st.rerun()
-
-        for mensaje in historial:
-            with st.chat_message(mensaje["role"]):
-                st.markdown(mensaje["content"])
-
-        pregunta = st.chat_input("Ej.: ¿qué sucursal está pidiendo demasiado queso?")
-        pregunta = st.session_state.pop("pregunta_pendiente", None) or pregunta
-
-        if pregunta:
-            historial.append({"role": "user", "content": pregunta})
-            with st.chat_message("user"):
-                st.markdown(pregunta)
-            with st.chat_message("assistant"):
-                with st.spinner("Pensando…"):
-                    try:
-                        respuesta = CH.preguntar(
-                            pregunta,
-                            # Se le pasa lo filtrado: si la gerente filtró una
-                            # sucursal, el chat responde sobre lo que está viendo.
-                            filtradas if not filtradas.empty else alertas_completas,
-                            api_key=clave_groq,
-                            metodo=metodo,
-                            modelo=modelo_groq(),
-                            historial=historial[:-1],
-                        )
-                    except CH.ErrorChat as error:
-                        respuesta = f"⚠️ {error}"
-                        disponibles = CH.modelos_disponibles(clave_groq)
-                        if disponibles:
-                            respuesta += ("\n\nModelos disponibles con tu clave: "
-                                          + ", ".join(f"`{m}`" for m in disponibles[:8]))
-                st.markdown(respuesta)
-            historial.append({"role": "assistant", "content": respuesta})
-
-        if historial and st.button("🗑️ Borrar la conversación"):
-            st.session_state["chat"] = []
-            st.rerun()

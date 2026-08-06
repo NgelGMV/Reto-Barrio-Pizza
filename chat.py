@@ -44,6 +44,21 @@ COLUMNAS_CONTEXTO = [
     "es_perecedero", "consumo_proyectado", "stock_actual", "unidad_base",
 ]
 
+# Encabezados en castellano: si el modelo solo ve nombres legibles, no puede
+# contestarle a la gerente con "el delta_formatos es -7".
+NOMBRES_LEGIBLES = {
+    "nombre": "insumo",
+    "tipo": "alerta",
+    "formatos_pedidos": "pidio (formatos)",
+    "formatos_recomendados": "necesita (formatos)",
+    "delta_formatos": "diferencia (formatos)",
+    "formato_compra": "formato",
+    "es_perecedero": "perecedero",
+    "consumo_proyectado": "consumo proyectado (semana)",
+    "stock_actual": "stock actual",
+    "unidad_base": "unidad",
+}
+
 INSTRUCCIONES = """\
 Sos el asistente de la gerente de compras de Barrio Pizza, una cadena de pizzerías \
 en Panamá. Respondés en español rioplatense neutro, en tono directo y breve.
@@ -55,11 +70,14 @@ sucursales, insumos ni cantidades.
 qué se podría mirar en el dashboard.
 - Las cantidades se piden en FORMATOS (sacos, cajas, latas). Cuando des un número \
 aclarás de qué formato hablás.
-- `delta_formatos` es lo pedido menos lo recomendado: positivo = pidió de más, \
-negativo = se va a quedar corto.
-- Los tipos de alerta son: PIDE_MENOS (riesgo de quiebre), PIDE_MAS (exceso), \
-OLVIDO (no lo pidió y lo necesita), SIN_HISTORIAL, DATO_RARO (no está en el \
-catálogo) y OK.
+- "diferencia (formatos)" es lo pedido menos lo que necesita: positivo = pidió de \
+más, negativo = se va a quedar corto.
+- La columna "alerta" ya viene en castellano ("Riesgo de quiebre", "Olvido", \
+"Exceso", "Sin historial", "No verificable", "OK"). Usá esas palabras tal cual; \
+nunca escribas códigos internos en mayúsculas.
+- NUNCA menciones nombres de columnas ni de variables. Hablás como le hablarías a \
+la gerente: "a Costa del Este le faltan 7 sacos de harina", no "el campo \
+diferencia es -7".
 - Si la pregunta es sobre plata o precios, aclarás que el sistema todavía no tiene \
 los costos cargados.
 - Nada de tablas markdown largas ni listas de más de 6 puntos: la gerente quiere \
@@ -81,6 +99,11 @@ def contexto_de_alertas(alertas: pd.DataFrame, metodo: str = L.METODO_PROMEDIO) 
     for columna in ("consumo_proyectado", "stock_actual"):
         if columna in tabla.columns:
             tabla[columna] = tabla[columna].round(1)
+    # El modelo no ve los códigos internos, así que no los puede repetir en la
+    # respuesta: la gerente no tiene por qué leer "PIDE_MENOS".
+    if "tipo" in tabla.columns:
+        tabla["tipo"] = tabla["tipo"].map(L.ETIQUETAS_TIPO).fillna(tabla["tipo"])
+    tabla = tabla.rename(columns=NOMBRES_LEGIBLES)
 
     resumen = L.resumen_kpis(alertas)
     encabezado = (

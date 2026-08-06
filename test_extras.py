@@ -177,10 +177,21 @@ def test_el_contexto_lleva_los_numeros_reales(alertas):
     """El modelo tiene que ver exactamente lo que calculó logica.py."""
     contexto = CH.contexto_de_alertas(alertas, metodo=L.METODO_INTELIGENTE)
     assert "Proyección inteligente" in contexto
-    assert "Harina 00" in contexto and "PIDE_MENOS" in contexto
+    assert "Harina 00" in contexto
     # El resumen del encabezado tiene que coincidir con los KPI del dashboard.
     resumen = L.resumen_kpis(alertas)
     assert f"Alertas: {resumen['total_alertas']}" in contexto
+
+
+def test_el_contexto_no_lleva_jerga_interna(alertas):
+    """Si el modelo no ve los códigos ni los nombres de columna, no los puede
+    repetir en la respuesta: la gerente no tiene por qué leer 'PIDE_MENOS'."""
+    contexto = CH.contexto_de_alertas(alertas)
+    for codigo in L.TIPOS_ALERTA:
+        assert codigo not in contexto
+    for columna in ("delta_formatos", "formatos_pedidos", "unidad_base"):
+        assert columna not in contexto
+    assert "Riesgo de quiebre" in contexto
 
 
 def test_el_contexto_entra_holgado_en_el_prompt(alertas):

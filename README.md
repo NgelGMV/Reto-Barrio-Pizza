@@ -42,7 +42,7 @@ python -m pytest test_logica.py -v
 | `test_extras.py` | 19 verificaciones de los módulos opcionales, la edición de órdenes y el chat. |
 | `datos/` | Los 4 CSV del reto. |
 | `assets/` | El logo de la marca. Es opcional: si el archivo no está, la app arranca igual. |
-| `.streamlit/config.toml` | Tema en blanco y negro, para que el rojo quede reservado a las alertas. |
+| `.streamlit/config.toml` | Tema negro sobre el que el color queda reservado a las alertas. |
 
 La separación importa: la lógica se puede testear sin levantar la interfaz, y la
 interfaz no toma ni una sola decisión de negocio.
@@ -198,6 +198,33 @@ faltaba, el olvido desaparece).
 
 ---
 
+## Cómo está pensada la pantalla
+
+La gerente entra para contestar una sola pregunta: **a quién tengo que llamar hoy**. La
+pantalla está ordenada para que la conteste sin leer una tabla:
+
+1. **Los números de arriba** dicen cuánto hay para revisar, y cada uno muestra cuánto
+   cambiaría con el otro método de proyección. Es lo que hace visible, en vivo, que el
+   promedio simple inventa un quiebre que no existe.
+2. **El estado por sucursal** es la fila que más rápido resuelve la pregunta: cuatro
+   tarjetas, cada una con el color de su alerta más grave. Marbella en verde significa
+   "no la llames"; Costa del Este en rojo, "empezá por acá".
+3. **Las alertas** vienen como frases accionables, agrupadas por gravedad, con los tres
+   números que hacen falta para decidir (necesita / pidió / diferencia) y nunca en
+   kilos: siempre en los formatos en los que realmente se compra.
+4. **El detalle** está escondido en "Ver cómo se calculó", para el que quiera auditarlo.
+
+El tema es negro con el color reservado a las alertas: el primario de la interfaz es
+blanco, así que los filtros y las pestañas no compiten con el rojo. Si los botones
+también fueran de color, el rojo dejaría de significar "riesgo de quiebre" y pasaría a
+ser decoración.
+
+El **chat vive en la barra lateral** y no en una pestaña propia, por dos razones: no
+tiene que robarle espacio al tablero, y en Streamlit los diálogos y popovers se cierran
+en cada rerun, con lo cual una conversación adentro sería inusable.
+
+---
+
 ## Las cuatro vistas extra
 
 **🔎 Órdenes raras.** Las alertas comparan cada sucursal contra sí misma. Esta vista
@@ -227,8 +254,17 @@ que nadie confunda una simulación con la orden real.
 
 **📦 Pedido corregido por proveedor.** Ver más arriba.
 
-**💬 Preguntar.** La gerente escribe en español ("¿qué sucursal está pidiendo demasiado
-queso?") y recibe una respuesta en texto, sin leer tablas.
+**💬 Preguntar** (en la barra lateral). La gerente escribe en español ("¿qué sucursal
+está pidiendo demasiado queso?") y recibe una respuesta en texto, sin leer tablas. Por
+ejemplo, a *"resumime en 3 líneas qué tengo que corregir hoy"* responde:
+
+> A Costa del Este le faltan 7 sacos de harina.
+> Brisas del Golf se va a quedar corto de Mozzarella, le faltan 18 cajas.
+> Via Argentina tiene un exceso de albahaca fresca, pidió 18 paquetes de más.
+
+El modelo nunca ve los códigos internos ni los nombres de las columnas: la tabla se le
+pasa con encabezados en castellano y las alertas ya traducidas. Si no los ve, no los
+puede repetir, y la gerente no termina leyendo `PIDE_MENOS` ni `delta_formatos`.
 
 La decisión de diseño importante es **cómo se conecta el modelo a los datos**. La
 tentación es dejar que el modelo escriba código pandas y ejecutarlo, pero eso es darle
