@@ -2,5 +2,9 @@ streamlit>=1.49
 pandas>=2.2
 numpy>=1.26
 
+# Para el chat con los datos (API de Groq por HTTP, sin SDK).
+# Ya viene con Streamlit, pero se declara porque el código lo importa directo.
+requests>=2.31
+
 # Solo para correr las pruebas; el dashboard no lo usa.
 pytest>=8.0

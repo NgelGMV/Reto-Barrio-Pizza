@@ -10,12 +10,14 @@ from __future__ import annotations
 import base64
 import html
 import io
+import os
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 import anomalias as AN
+import chat as CH
 import logica as L
 import proveedores as P
 
@@ -94,6 +96,27 @@ def cargar(orden_csv: str | None = None) -> L.Datos:
 @st.cache_data(show_spinner=False)
 def alertas_de(metodo: str, buffer: float, orden_csv: str | None = None) -> pd.DataFrame:
     return L.construir_alertas(cargar(orden_csv), metodo=metodo, buffer=buffer)
+
+
+def _secreto(nombre: str) -> str | None:
+    """Lee un secreto de Streamlit y, si no hay, del entorno.
+
+    `st.secrets` levanta excepción cuando no existe el archivo de secrets, que es
+    el caso normal al correr en local sin chat: por eso el try.
+    """
+    try:
+        valor = st.secrets.get(nombre)
+    except Exception:
+        valor = None
+    return valor or os.environ.get(nombre)
+
+
+def obtener_clave_groq() -> str | None:
+    return _secreto("GROQ_API_KEY")
+
+
+def modelo_groq() -> str:
+    return _secreto("GROQ_MODELO") or CH.MODELO_POR_DEFECTO
 
 
 @st.cache_data(show_spinner=False)
@@ -441,11 +464,12 @@ leyenda(list(L.TIPOS_ALERTA) + ([L.OK] if mostrar_ok else []))
 # Contenido principal
 # ---------------------------------------------------------------------------
 
-tab_alertas, tab_raras, tab_proveedores, tab_editar = st.tabs([
+tab_alertas, tab_raras, tab_proveedores, tab_editar, tab_chat = st.tabs([
     "🚨 Alertas",
     "🔎 Órdenes raras",
     "📦 Pedido corregido por proveedor",
     "✏️ Editar la orden",
+    "💬 Preguntar",
 ])
 
 with tab_alertas:
@@ -680,3 +704,75 @@ with tab_editar:
         file_name="orden_compra_semana.csv",
         mime="text/csv",
     )
+
+with tab_chat:
+    st.markdown(
+        "Preguntá en español sobre la orden de esta semana. El modelo responde "
+        "**solo con las alertas ya calculadas**, así que no puede contradecir al "
+        "dashboard ni inventar cantidades."
+    )
+
+    clave_groq = obtener_clave_groq()
+    if not clave_groq:
+        st.info(
+            "Para activar el chat hace falta una clave gratuita de Groq "
+            "(sin tarjeta de crédito).",
+            icon="🔑",
+        )
+        with st.expander("Cómo activarlo"):
+            st.markdown(
+                "1. Entrá a **console.groq.com** y creá una API key.\n"
+                "2. **En local:** creá el archivo `.streamlit/secrets.toml` con:\n"
+                "   ```toml\n   GROQ_API_KEY = \"gsk_tu_clave\"\n   ```\n"
+                "3. **En Streamlit Cloud:** *Manage app → Settings → Secrets* y pegá "
+                "la misma línea.\n\n"
+                "El archivo de secrets está en `.gitignore`: la clave nunca se sube "
+                "al repositorio."
+            )
+    else:
+        historial = st.session_state.setdefault("chat", [])
+
+        if not historial:
+            st.caption("Probá con una de estas:")
+            columnas_sugerencias = st.columns(len(CH.PREGUNTAS_SUGERIDAS))
+            for columna, sugerencia in zip(columnas_sugerencias, CH.PREGUNTAS_SUGERIDAS):
+                if columna.button(sugerencia, use_container_width=True):
+                    st.session_state["pregunta_pendiente"] = sugerencia
+                    st.rerun()
+
+        for mensaje in historial:
+            with st.chat_message(mensaje["role"]):
+                st.markdown(mensaje["content"])
+
+        pregunta = st.chat_input("Ej.: ¿qué sucursal está pidiendo demasiado queso?")
+        pregunta = st.session_state.pop("pregunta_pendiente", None) or pregunta
+
+        if pregunta:
+            historial.append({"role": "user", "content": pregunta})
+            with st.chat_message("user"):
+                st.markdown(pregunta)
+            with st.chat_message("assistant"):
+                with st.spinner("Pensando…"):
+                    try:
+                        respuesta = CH.preguntar(
+                            pregunta,
+                            # Se le pasa lo filtrado: si la gerente filtró una
+                            # sucursal, el chat responde sobre lo que está viendo.
+                            filtradas if not filtradas.empty else alertas_completas,
+                            api_key=clave_groq,
+                            metodo=metodo,
+                            modelo=modelo_groq(),
+                            historial=historial[:-1],
+                        )
+                    except CH.ErrorChat as error:
+                        respuesta = f"⚠️ {error}"
+                        disponibles = CH.modelos_disponibles(clave_groq)
+                        if disponibles:
+                            respuesta += ("\n\nModelos disponibles con tu clave: "
+                                          + ", ".join(f"`{m}`" for m in disponibles[:8]))
+                st.markdown(respuesta)
+            historial.append({"role": "assistant", "content": respuesta})
+
+        if historial and st.button("🗑️ Borrar la conversación"):
+            st.session_state["chat"] = []
+            st.rerun()

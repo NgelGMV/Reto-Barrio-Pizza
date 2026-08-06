@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 import anomalias as AN
+import chat as CH
 import logica as L
 import proveedores as P
 
@@ -165,6 +166,42 @@ def test_orden_vacia_no_rompe_la_app(datos):
     alertas = L.construir_alertas(L.cargar_datos(orden_df=vacia))
     assert not alertas.empty
     assert set(alertas["tipo"]) <= {L.OLVIDO, L.OK}
+
+
+# ---------------------------------------------------------------------------
+# Chat con los datos (sin llamar a la API)
+# ---------------------------------------------------------------------------
+
+
+def test_el_contexto_lleva_los_numeros_reales(alertas):
+    """El modelo tiene que ver exactamente lo que calculó logica.py."""
+    contexto = CH.contexto_de_alertas(alertas, metodo=L.METODO_INTELIGENTE)
+    assert "Proyección inteligente" in contexto
+    assert "Harina 00" in contexto and "PIDE_MENOS" in contexto
+    # El resumen del encabezado tiene que coincidir con los KPI del dashboard.
+    resumen = L.resumen_kpis(alertas)
+    assert f"Alertas: {resumen['total_alertas']}" in contexto
+
+
+def test_el_contexto_entra_holgado_en_el_prompt(alertas):
+    """Con ~90 líneas el dataset entero cabe en el contexto sin resumir."""
+    contexto = CH.contexto_de_alertas(alertas)
+    assert len(contexto) < 40_000  # ~10k tokens, muy por debajo del límite
+
+
+def test_contexto_sin_alertas_no_rompe():
+    vacio = pd.DataFrame(columns=L.COLUMNAS_ALERTAS)
+    assert "No hay ninguna línea" in CH.contexto_de_alertas(vacio)
+
+
+def test_sin_clave_avisa_en_vez_de_reventar(alertas):
+    with pytest.raises(CH.ErrorChat, match="clave"):
+        CH.preguntar("¿qué pasa?", alertas, api_key="")
+
+
+def test_pregunta_vacia_no_llega_a_la_api(alertas):
+    with pytest.raises(CH.ErrorChat, match="vacía"):
+        CH.preguntar("   ", alertas, api_key="gsk_falsa")
 
 
 if __name__ == "__main__":
