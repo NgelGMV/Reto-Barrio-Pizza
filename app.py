@@ -79,9 +79,13 @@ st.markdown("""
   section[data-testid="stSidebar"] { width: 340px !important; }
   .block-container { padding-top: 2.2rem; padding-bottom: 3rem; }
 
-  /* El primario del tema es blanco, así que las etiquetas de los filtros salen
-     blancas sobre blanco. Hay que forzarles el texto oscuro. */
+  /* El primario del tema es blanco y Streamlit no le calcula un texto que
+     contraste: las etiquetas de los filtros salen blancas sobre blanco. Van los
+     selectores de las dos versiones porque el DOM del multiselect cambió entre
+     la que corre en local y la de Streamlit Cloud. */
+  [data-testid="stMultiSelectTagsContainer"] span,
   span[data-baseweb="tag"], span[data-baseweb="tag"] span { color:#0A0A0B !important; }
+  [data-testid="stMultiSelectTagsContainer"] svg,
   span[data-baseweb="tag"] svg { fill:#0A0A0B !important; }
 
   .fila { display:flex; gap:.7rem; flex-wrap:wrap; margin-bottom:1.1rem; }
