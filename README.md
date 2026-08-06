@@ -5,11 +5,15 @@ aprobar producto por producto "al ojo", la gerente de compras abre el dashboard 
 de un vistazo qué sucursal **se va a quedar sin producto**, cuál **está pidiendo de
 más**, qué **se olvidaron de pedir** y qué líneas **no se pueden verificar**.
 
-> **App en vivo:** _(pendiente de publicar en Streamlit Community Cloud)_
+> ### 👉 [barrio-pizza-ordenes.streamlit.app](https://barrio-pizza-ordenes.streamlit.app)
+>
+> Desplegada en Streamlit Community Cloud, sin necesidad de instalar nada.
+> Si estuvo varios días sin visitas la app se duerme: el primer acceso puede tardar
+> unos 30 segundos en despertar.
 
 ---
 
-## Cómo correrlo
+## Cómo correrlo en local
 
 ```bash
 pip install -r requirements.txt
